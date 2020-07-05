@@ -1,0 +1,66 @@
+#!/bin/bash
+# Based on this guide: http://www.zoharbabin.com/how-to-do-noise-reduction-using-ffmpeg-and-sox/
+# Script written by digitalight (Mike Glover)
+
+
+# Check that FFMPEG and sox are installed
+
+if ! command -v ffmpeg &> /dev/null
+then
+    echo "FFMPEG is not installed."
+    exit
+fi
+
+if ! command -v sox &> /dev/null
+then
+    echo "SOX is not installed."
+    exit
+fi
+
+# Check if a file has been passed for cleaning
+
+if [ $# == 0 ]
+then
+	echo "No file given to clean up."
+    exit
+fi
+
+# Variables
+
+INPUTFILE="${1}"
+OUTPUTFILE=$(echo "$INPUTFILE" | cut -f1 -d '.')
+
+# Split the video and audio
+# VIDEO
+echo "Splitting video..."
+ffmpeg -i "$INPUTFILE" -vcodec copy -an tmpvid.mp4 &> /dev/null
+# AUDIO
+echo "Splitting audio..."
+ffmpeg -i "$INPUTFILE" -acodec pcm_s16le -ar 128k -vn tmpaud.wav &> /dev/null
+
+# Listen to first half second of video
+echo "Listening to first half second of video to get noise level..."
+ffmpeg -i "$INPUTFILE" -acodec pcm_s16le -ar 128k -vn -ss 00:00:00.0 -t 00:00:00.5 noiseaud.wav &> /dev/null
+
+# Generate noise profile
+echo "Making noise profile..."
+sox noiseaud.wav -n noiseprof noise.prof &> /dev/null
+
+# Clean the audio file with the profile created
+echo "Cleaning the audio with the profile..."
+sox tmpaud.wav tmpaud-clean.wav noisered noise.prof 0.21 &> /dev/null
+
+# Make a clean folder
+mkdir cleaned &> /dev/null
+
+# Merge the video back
+echo "Merging the cleaned audio back with video..."
+ffmpeg -i tmpvid.mp4 -i tmpaud-clean.wav -map 0:v -map 1:a -c:v copy -c:a aac -b:a 128k "cleaned/${OUTPUTFILE}.mp4" &> /dev/null
+
+echo "Cleaning up..."
+# Clean up temp files
+rm noiseaud.wav
+rm noise.prof
+rm tmpaud.wav
+rm tmpvid.mp4
+rm tmpaud-clean.wav
